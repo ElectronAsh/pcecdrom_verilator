@@ -139,10 +139,8 @@ reg clear_ack = 0;
 reg SCSI_think = 0;
 reg SCSI_RST = 0;
 reg SCSI_ACK = 0;
-// @todo SCSI device selected is forced to one here
-reg SCSI_SEL = 1;
-reg SCSI_SEL_flipflop = 0;
-reg SCSI_SEL_flipflop_latch = 0;
+reg SCSI_SEL = 0;
+
 
 reg SCSI_BSY;
 reg SCSI_REQ;
@@ -317,21 +315,24 @@ always_ff @(posedge clk) begin
 				case (addr)
 					8'h00: begin	// 0x1800 CDC_STAT
 						//cdc_status <= din;
-						//SCSI_BSY  <= din[7];
+						//SCSI_BSY  <= din[7];	// Bits 7:3 of CDC_STAT seem to be READ ONLY! ElectronAsh.
 						//SCSI_REQ  <= din[6];
 						//SCSI_MSG  <= din[5];
 						//SCSI_CD   <= din[4];
 						//SCSI_IO   <= din[3];
-						SCSI_BIT2 <= din[2];
-						SCSI_BIT1 <= din[1];
+						SCSI_BIT2 <= din[2];	// Lower three bits are probably the drive's SCSI ID.
+						SCSI_BIT1 <= din[1];	// Which will normally be set to 0b00000001 (bit 0 set == SCSI ID 0).
 						SCSI_BIT0 <= din[0];
-						
-						// Try to trigger the SEL flipflop latch thing
-						SCSI_SEL_flipflop_latch <= 1;
+
+						SCSI_SEL <= 1;			// MAME (and us) are just assuming that there is only ONE drive on the bus.
+												// So no real point checking to see if the ID matches before setting SCSI_SEL.
+												// But we could add a check for seeing 0x81 written to CDC_STAT later on.
 					end
 					8'h01: begin	// 0x1801 CDC_CMD
 						//$display("Write to 0x1. 0x%h", din);
 						cdc_databus <= din;
+						phase <= PHASE_COMMAND;	// ElectronAsh.
+						cd_command_buffer_pos <= 0;
 						SCSI_think <= 1;
 					end
 					8'h02: begin	// 0x1802 INT_MASK
@@ -392,24 +393,6 @@ always_ff @(posedge clk) begin
 				endcase
 			end // end wr
 
-			if (SCSI_SEL_flipflop_latch) begin
-				if (SCSI_SEL_flipflop) begin
-					$display("**** LATCH LAST ******");
-					// This one will get executed last
-					SCSI_SEL <= 0;
-					SCSI_think <= 1;
-					// Reset the flip flop and latch
-					SCSI_SEL_flipflop <= 0;
-					SCSI_SEL_flipflop_latch <= 0;
-				end else begin
-					$display("**** LATCH FIRST ******");
-					// This one will get executed first
-					SCSI_SEL <= 1;
-					SCSI_think <= 1;
-					SCSI_SEL_flipflop <= 1;
-				end
-			end // End Scsi flipflop
-
 			if (clear_ack) begin
 				$display("PCECD: Clearing ACK");
 			end
@@ -432,10 +415,6 @@ always_ff @(posedge clk) begin
 				// Stop all reads
 				// Stop all audio
 				//phase <= PHASE_BUS_FREE;
-				
-				phase <= PHASE_COMMAND;	// ElectronAsh.
-				cd_command_buffer_pos <= 0;
-				
 				//bus_phase_changed <= 1;
 			end
 
